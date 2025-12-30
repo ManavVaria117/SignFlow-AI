@@ -26,18 +26,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Engine
+from contextlib import asynccontextmanager
+
+# Global system state
+system = None
 model_path = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'action.h5')
 actions = np.array(['Hello', 'ThankYou', 'Help', 'Please'])
 
-print(f"Loading system from: {model_path}")
-# CLOUD MODE: Pass capture_source=None so the server doesn't try to open a webcam.
-# The server will purely process images sent via WebSocket.
-system = SignLanguageSystem(model_path, actions, capture_source=None)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global system
+    print(f"[Startup] Loading system from: {model_path}")
+    try:
+        # CLOUD MODE: Pass capture_source=None so the server doesn't try to open a webcam.
+        system = SignLanguageSystem(model_path, actions, capture_source=None)
+        print("[Startup] System loaded successfully.")
+    except Exception as e:
+        print(f"[Startup] CRITICAL ERROR: Failed to load system: {e}")
+        # We don't exit here so the server can at least start and report the error
+    
+    yield
+    
+    print("[Shutdown] Releasing system...")
+    if system:
+        system.release()
 
-@app.on_event("shutdown")
-def shutdown_event():
-    system.release()
+app = FastAPI(lifespan=lifespan)
 
 def generate_frames():
     """Video streaming generator function (Legacy Local Mode)."""

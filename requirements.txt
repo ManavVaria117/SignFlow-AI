@@ -1,12 +1,9 @@
 opencv-python-headless
 mediapipe
-numpy
+numpy<2.0
 tensorflow
 scikit-learn
 fastapi
 uvicorn
 websockets
 python-multipart
-# gTTS
-# pygame
-# pyttsx3
