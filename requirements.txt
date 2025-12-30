@@ -8,3 +8,4 @@ uvicorn
 websockets
 python-multipart
 protobuf==3.20.3
+keras>=3.0.0
