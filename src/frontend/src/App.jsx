@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Activity, Zap, Mic, Globe, Cpu } from 'lucide-react';
 
-const API_URL = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/ws';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Dynamic WebSocket URL based on API_URL
+const WS_URL = API_URL.replace(/^http/, 'ws') + '/ws';
 
 function App() {
   const [data, setData] = useState({ sentence: '', prediction: -1, confidence: 0 });
