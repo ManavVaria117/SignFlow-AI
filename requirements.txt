@@ -7,4 +7,4 @@ fastapi
 uvicorn
 websockets
 python-multipart
-protobuf<5.0.0
+protobuf>=4.25.0,<5.0.0

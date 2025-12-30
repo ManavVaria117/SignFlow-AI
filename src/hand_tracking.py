@@ -10,10 +10,19 @@ class HandDetector:
         self.detectionCon = detectionCon
         self.trackCon = trackCon
 
-        self.mpHands = mp.solutions.hands
+        # Robust Import for MediaPipe
+        try:
+             self.mpHands = mp.solutions.hands
+             self.mpDraw = mp.solutions.drawing_utils
+        except AttributeError:
+             # Fallback for some linux environments having issues with top-level lazy loading
+             import mediapipe.python.solutions.hands as mp_hands
+             import mediapipe.python.solutions.drawing_utils as mp_drawing
+             self.mpHands = mp_hands
+             self.mpDraw = mp_drawing
+
         self.hands = self.mpHands.Hands(self.mode, self.maxHands, self.modelComplexity,
                                         self.detectionCon, self.trackCon)
-        self.mpDraw = mp.solutions.drawing_utils
 
     def findHands(self, img, draw=True):
         imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
