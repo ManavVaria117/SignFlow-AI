@@ -86,6 +86,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 packet = json.loads(data_in)
                 
                 if "image" in packet:
+                    # Check if system is loaded
+                    if system is None:
+                         # Send error packet or ignore
+                         await websocket.send_json({"error": "Model not loaded"})
+                         continue
+
                     # CLOUD MODE: Client sends image
                     # 1. Decode Base64
                     encoded_data = packet["image"].split(',')[1]
