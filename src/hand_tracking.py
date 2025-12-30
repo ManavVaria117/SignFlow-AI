@@ -14,12 +14,10 @@ class HandDetector:
         try:
              self.mpHands = mp.solutions.hands
              self.mpDraw = mp.solutions.drawing_utils
-        except AttributeError:
-             # Fallback for some linux environments having issues with top-level lazy loading
-             import mediapipe.python.solutions.hands as mp_hands
-             import mediapipe.python.solutions.drawing_utils as mp_drawing
-             self.mpHands = mp_hands
-             self.mpDraw = mp_drawing
+        except AttributeError as e:
+             print(f"[HandDetector] Error importing mp.solutions: {e}")
+             print(f"[HandDetector] Available mediapipe modules: {dir(mp)}")
+             raise e
 
         self.hands = self.mpHands.Hands(self.mode, self.maxHands, self.modelComplexity,
                                         self.detectionCon, self.trackCon)

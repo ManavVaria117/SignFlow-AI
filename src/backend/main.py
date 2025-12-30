@@ -76,6 +76,7 @@ async def video_feed():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    print(f"[WS] Client connected: {websocket.client}")
     try:
         while True:
             # Wait for data from Client
