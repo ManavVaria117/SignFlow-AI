@@ -64,60 +64,78 @@ function App() {
   /* -- Robust WebSocket Connection with Streaming -- */
   useEffect(() => {
     let reconnectTimer;
+    let ws;
 
     const connect = () => {
-      const ws = new WebSocket(WS_URL);
+      ws = new WebSocket(WS_URL);
       wsRef.current = ws;
 
       ws.onopen = () => {
         console.log('Connected to Brain');
         setConnected(true);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          setData(msg);
-        } catch (e) {
-          console.error("Parse Error", e);
-        }
+        // KICKSTART THE LOOP: Send first frame
+        setTimeout(sendFrame, 1000);
       };
 
       ws.onclose = () => {
         console.log("Brain disconnected, retrying...");
         setConnected(false);
+        isProcessing.current = false;
         reconnectTimer = setTimeout(connect, 3000); // Auto-reconnect
+      };
+
+      ws.onmessage = (event) => {
+        // 1. Process Response
+        try {
+          const response = JSON.parse(event.data);
+          if (response.error) {
+            console.error(response.error);
+          } else {
+            setData(response);
+          }
+        } catch (e) {
+          console.error("Parse Error", e);
+        }
+
+        // 2. Loop: Send NEXT frame immediately
+        isProcessing.current = false;
+        // Small throttle
+        setTimeout(sendFrame, 50);
       };
     };
 
     connect();
 
     return () => {
+      if (ws) ws.close();
       if (wsRef.current) wsRef.current.close();
       clearTimeout(reconnectTimer);
     };
   }, []);
 
-  // Frame Loop
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && videoRef.current && canvasRef.current) {
-        const ctx = canvasRef.current.getContext('2d');
-        ctx.drawImage(videoRef.current, 0, 0, 640, 480);
-        const image = canvasRef.current.toDataURL('image/jpeg', 0.5); // Quality 0.5
+  // Frame Processing Loop (Ping-Pong Flow Control)
+  const isProcessing = useRef(false);
 
-        wsRef.current.send(JSON.stringify({ image: image }));
-      }
-    }, 50); // 20 FPS
+  const sendFrame = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && videoRef.current && canvasRef.current) {
+      if (isProcessing.current) return; // Don't stack requests
 
-    return () => clearInterval(interval);
-  }, []);
+      isProcessing.current = true;
+      const ctx = canvasRef.current.getContext('2d');
+      // Resize to 320x240 for faster upload
+      ctx.drawImage(videoRef.current, 0, 0, 320, 240);
+      const image = canvasRef.current.toDataURL('image/jpeg', 0.6);
+
+      wsRef.current.send(JSON.stringify({ image: image }));
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-slate-950 text-cyan-50 font-sans p-6 flex flex-col items-center justify-start relative overflow-y-auto">
 
       {/* Hidden processing canvas */}
-      <canvas ref={canvasRef} width="640" height="480" className="hidden" />
+      <canvas ref={canvasRef} width="320" height="240" className="hidden" />
 
       {/* Background Decor */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-20 z-0">
@@ -189,8 +207,8 @@ function App() {
                   <span className="text-green-400">ACTIVE</span>
                 </div>
                 <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                  <span>Latency</span>
-                  <span className="text-cyan-400">~80ms</span>
+                  <span>Ping</span>
+                  <span className="text-cyan-400">~200ms</span>
                 </div>
                 <div className="flex justify-between items-center border-b border-slate-800 pb-2">
                   <span>Mode</span>
