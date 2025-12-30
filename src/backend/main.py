@@ -12,6 +12,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from engine import SignLanguageSystem
+import base64
 import numpy as np
 
 app = FastAPI()
@@ -30,14 +31,16 @@ model_path = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'acti
 actions = np.array(['Hello', 'ThankYou', 'Help', 'Please'])
 
 print(f"Loading system from: {model_path}")
-system = SignLanguageSystem(model_path, actions)
+# CLOUD MODE: Pass capture_source=None so the server doesn't try to open a webcam.
+# The server will purely process images sent via WebSocket.
+system = SignLanguageSystem(model_path, actions, capture_source=None)
 
 @app.on_event("shutdown")
 def shutdown_event():
     system.release()
 
 def generate_frames():
-    """Video streaming generator function."""
+    """Video streaming generator function (Legacy Local Mode)."""
     while True:
         img, _, _ = system.get_frame()
         if img is None:
@@ -53,7 +56,7 @@ def generate_frames():
 
 @app.get("/video_feed")
 async def video_feed():
-    """Video streaming route. Put this in the src of an img tag."""
+    """Video streaming route (Legacy Local Mode)."""
     return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 @app.websocket("/ws")
@@ -61,38 +64,43 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            # We don't need to process frame here (it's done in video loop or we can decouple)
-            # Better architecture: The generate_frames loop drives the system.
-            # But the WebSocket needs access to the latest result.
+            # Wait for data from Client
+            data_in = await websocket.receive_text()
             
-            # Simple polling for this demo (low latency enough)
-            # In a prod system, we'd use an event or queue from the engine
-            
-            # Accessing the latest prediction from system state
-            # Note: This relies on generate_frames being active (i.e. someone watching the video)
-            # If no video watcher, the camera reads might stall if we don't thread them independently.
-            # But ThreadedCamera handles the reading. We need to CALL get_frame() somewhere.
-            
-            # To fix "Zombie" state if no video feed:
-            # We can rely on the fact that the camera thread is running.
-            # But get_frame() triggers the PREDICTION queueing.
-            # So we need to ensure get_frame() is called. 
-            # For this MVP, we assume the Frontend loads both Video and WS.
-            
-            await asyncio.sleep(0.05) # 20 Hz update for UI
-            
-            data = {
-                "sentence": " ".join(system.sentence),
-                "prediction": int(system.predictions[-1]) if system.predictions else -1,
-                # "class": actions[system.predictions[-1]] if system.predictions else "",
-                # We can construct a cleaner object
-            }
-            
-            # Get latest strong prediction (handled in engine logic essentially)
-            # Let's peek at the engine internal state or return it from get_frame
-            # For now, let's just send the sentence and latest "live" class
-            
-            await websocket.send_json(data)
+            try:
+                # Check if it's JSON (Cloud Mode)
+                packet = json.loads(data_in)
+                
+                if "image" in packet:
+                    # CLOUD MODE: Client sends image
+                    # 1. Decode Base64
+                    encoded_data = packet["image"].split(',')[1]
+                    nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    
+                    # 2. Process
+                    _, sentence, pred_data = system.process_frame(img)
+                    
+                    # 3. Respond
+                    response = {
+                        "sentence": " ".join(sentence),
+                        "prediction": -1, # Deprecated for frontend, use class name below if needed
+                        "confidence": pred_data["confidence"]
+                    }
+                    if pred_data["class"]:
+                         # Find index for frontend compatibility if needed, or just send text
+                         # Frontend expects 'prediction' index. Let's find it.
+                         # This is a bit inefficient (search), but safe.
+                         idx = np.where(actions == pred_data["class"])[0]
+                         if len(idx) > 0:
+                             response["prediction"] = int(idx[0])
+                             
+                    await websocket.send_json(response)
+                    
+            except json.JSONDecodeError:
+                # Legacy polling fallback (if client sends empty triggers or old protocol)
+                # But we really expect JSON now.
+                pass
             
     except Exception as e:
         print(f"WebSocket Error: {e}")

@@ -40,13 +40,33 @@ function App() {
     }
   }, [data.sentence]);
 
-  /* -- Robust WebSocket Connection -- */
+  /* -- Camera Logic -- */
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const wsRef = useRef(null);
+
   useEffect(() => {
-    let ws;
+    // Start Camera
+    const startCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.error("Camera Error:", err);
+      }
+    };
+    startCamera();
+  }, []);
+
+  /* -- Robust WebSocket Connection with Streaming -- */
+  useEffect(() => {
     let reconnectTimer;
 
     const connect = () => {
-      ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
 
       ws.onopen = () => {
         console.log('Connected to Brain');
@@ -72,13 +92,31 @@ function App() {
     connect();
 
     return () => {
-      if (ws) ws.close();
+      if (wsRef.current) wsRef.current.close();
       clearTimeout(reconnectTimer);
     };
   }, []);
 
+  // Frame Loop
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && videoRef.current && canvasRef.current) {
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.drawImage(videoRef.current, 0, 0, 640, 480);
+        const image = canvasRef.current.toDataURL('image/jpeg', 0.5); // Quality 0.5
+
+        wsRef.current.send(JSON.stringify({ image: image }));
+      }
+    }, 50); // 20 FPS
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-950 text-cyan-50 font-sans p-6 flex flex-col items-center justify-start relative overflow-y-auto">
+
+      {/* Hidden processing canvas */}
+      <canvas ref={canvasRef} width="640" height="480" className="hidden" />
 
       {/* Background Decor */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-20 z-0">
@@ -97,7 +135,7 @@ function App() {
           <div className="flex items-center gap-3">
             <Zap className="text-yellow-400 fill-current" size={28} />
             <h1 className="text-2xl font-bold tracking-wider bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">
-              ZAP QUICK <span className="text-slate-500 text-sm font-medium ml-2">PRO</span>
+              ZAP QUICK <span className="text-slate-500 text-sm font-medium ml-2">CLOUD</span>
             </h1>
           </div>
           <div className="flex items-center gap-4">
@@ -113,7 +151,6 @@ function App() {
         <div className="w-full flex flex-col lg:grid lg:grid-cols-3 gap-6">
 
           {/* Footer: Sentence Bar (MOVED UP FOR MOBILE) */}
-          {/* Mobile: Order 1, Sticky Top. Desktop: Order Last (via Grid placement below or explicit order) */}
           <motion.div
             initial={{ y: 50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -132,8 +169,7 @@ function App() {
             </div>
           </motion.div>
 
-          {/* Left Panel: Statistics & History */}
-          {/* Mobile: Order 3 (Bottom). Desktop: Order 1 (Left Grid) */}
+          {/* Left Panel: Statistics */}
           <div className="order-3 lg:order-1 col-span-1 flex flex-col gap-6">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
@@ -153,11 +189,11 @@ function App() {
                 </div>
                 <div className="flex justify-between items-center border-b border-slate-800 pb-2">
                   <span>Latency</span>
-                  <span className="text-cyan-400">~15ms</span>
+                  <span className="text-cyan-400">~80ms</span>
                 </div>
                 <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                  <span>Model</span>
-                  <span className="text-purple-400">LITE (V2)</span>
+                  <span>Mode</span>
+                  <span className="text-purple-400">CLOUD</span>
                 </div>
               </div>
 
@@ -174,17 +210,19 @@ function App() {
             </motion.div>
           </div>
 
-          {/* Center Panel: Main Video Feed */}
-          {/* Mobile: Order 2. Desktop: Order 2 (Center Grid) */}
+          {/* Center Panel: Main Video Feed / Camera */}
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="order-2 lg:order-2 lg:col-span-2 relative bg-black rounded-3xl overflow-hidden shadow-2xl border border-slate-700/50 shadow-cyan-900/20 aspect-video lg:aspect-auto h-auto lg:h-[500px]"
           >
-            <img
-              src={`${API_URL}/video_feed`}
-              alt="Live Feed"
-              className="w-full h-full object-cover"
+            {/* Real Webcam feed (mirrored) */}
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover scale-x-[-1]"
             />
 
             {/* HUD Overlay */}
@@ -204,7 +242,7 @@ function App() {
               </AnimatePresence>
             </div>
 
-            {/* Recording Indicator */}
+            {/* Live Indicator */}
             <div className="absolute top-6 right-6 flex items-center gap-2 bg-red-500/10 backdrop-blur-md px-3 py-1 rounded-full border border-red-500/20">
               <div className="w-2 h-2 bg-red-500 rounded-full animate-bounce" />
               <span className="text-red-500 text-xs font-bold tracking-widest">LIVE</span>
@@ -243,7 +281,7 @@ function Overlay({ setConnected }) {
         className="bg-cyan-600 hover:bg-cyan-500 text-white px-8 py-4 rounded-full text-xl font-bold shadow-lg shadow-cyan-500/50 flex items-center gap-3"
       >
         <Zap className="fill-current" />
-        CLICK TO ACTIVATE SYSTEM
+        START CAMERA & AUDIO
       </motion.button>
     </div>
   );

@@ -96,9 +96,12 @@ class SignLanguageSystem:
     Facade to manage the Camera, HandDetector, and PredictionEngine together.
     Useful for both the CLI script and the Web Backend.
     """
-    def __init__(self, model_path, actions):
+    def __init__(self, model_path, actions, capture_source=0):
         self.detector = HandDetector(detectionCon=0.8, maxHands=1, modelComplexity=0)
-        self.camera = ThreadedCamera(0)
+        self.camera = None
+        if capture_source is not None:
+             self.camera = ThreadedCamera(capture_source)
+        
         self.predictor = PredictionEngine(model_path, actions)
         
         self.sequence = []
@@ -108,20 +111,25 @@ class SignLanguageSystem:
         # Stability / Logic state
         self.predictions = []
         self.sentence = []
-        self.threshold = 0.8
+        self.threshold = 0.85 
         
-    def get_frame(self):
-        """
-        Captures frame, runs detection, queues prediction.
-        Returns: (processed_image, current_sentence, debug_info_dict)
-        """
-        success, img = self.camera.read()
-        if not success or img is None:
-            return None, self.sentence, {}
-            
-        # Mirror
-        img = cv2.flip(img, 1)
+        # Per-class thresholds to prevent misfires
+        self.class_thresholds = {
+            "Help": 0.95,
+            "Please": 0.85,
+            "Hello": 0.85,
+            "ThankYou": 0.85
+        }
         
+    def process_frame(self, img):
+        """
+        Core pipeline: Detection -> Features -> Prediction -> Logic.
+        Input: img (OpenCV frame)
+        Returns: (processed_img, sentence, prediction_data)
+        """
+        if img is None:
+             return None, self.sentence, {}
+
         # Hand Tracking
         img = self.detector.findHands(img)
         lmList = self.detector.findPosition(img, draw=False)
@@ -143,11 +151,14 @@ class SignLanguageSystem:
             conf = res[best_idx]
             
             self.predictions.append(best_idx)
-            if len(self.predictions) > 5:
-                last_n = self.predictions[-5:]
+            if len(self.predictions) > 8:
+                # Optimized Stability: 8 frame hold required (~0.3s)
+                last_n = self.predictions[-8:]
                 if np.unique(last_n)[0] == best_idx: 
-                    if conf > self.threshold: 
-                        current_action = self.actions[best_idx]
+                    current_action = self.actions[best_idx]
+                    required_conf = self.class_thresholds.get(current_action, self.threshold)
+                    
+                    if conf > required_conf: 
                         prediction_data = {"class": current_action, "confidence": float(conf)}
                         
                         # Sentence Logic
@@ -162,6 +173,23 @@ class SignLanguageSystem:
                 
         return img, self.sentence, prediction_data
 
+    def get_frame(self):
+        """
+        Legacy: Captures from local USB camera.
+        """
+        if self.camera is None:
+             raise RuntimeError("Camera not initialized in this instance")
+
+        success, img = self.camera.read()
+        if not success or img is None:
+            return None, self.sentence, {}
+            
+        # Mirror for local view
+        img = cv2.flip(img, 1)
+        
+        return self.process_frame(img)
+
     def release(self):
-        self.camera.release()
+        if self.camera:
+            self.camera.release()
         self.predictor.stop()
